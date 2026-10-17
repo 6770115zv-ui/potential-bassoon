@@ -1,0 +1,118 @@
+<!doctype html>
+<html lang="he" dir="rtl">
+<head>
+  <meta charset="UTF-8"/>
+  <title>YouTube Proxy Ultra — מרכז הורדות ענן</title>
+  <link rel="stylesheet" href="shared/theme.css"/>
+</head>
+<body>
+  <main class="wrap">
+    <header class="hd">
+      <div class="hd__logo">⬇</div>
+      <div style="flex:1;">
+        <h1 style="margin:0;font-size:18px;">YouTube Proxy Ultra v2.0</h1>
+        <div style="display:flex;align-items:center;gap:6px;margin-top:2px;">
+          <span class="dot" id="conn-dot"></span>
+          <span class="small muted" id="conn-text">בודק חיבור...</span>
+        </div>
+      </div>
+      <button class="btn" id="cleanCloudBtn" type="button" title="מחק מיד את כל ה-Releases והריצות ב-GitHub">🧹 ניקוי ענן</button>
+      <button class="btn" id="settingsBtn" type="button">⚙ הגדרות</button>
+    </header>
+
+    <section class="card">
+      <label class="small muted" style="font-weight:600;">קישור לסרטון, פלייליסט או רשימת קישורים (מופרדים ברווח/שורה):</label>
+      <input id="urlInput" class="input" dir="ltr" placeholder="https://www.youtube.com/watch?v=..."/>
+
+      <div id="videoPreview" class="preview-box" style="display:none;">
+        <img id="previewThumb" src="" alt="Thumbnail"/>
+        <div style="flex:1;overflow:hidden;">
+          <div id="previewTitle" style="font-weight:600;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;"></div>
+          <div id="previewAuthor" class="small muted"></div>
+        </div>
+      </div>
+
+      <div class="grid-2">
+        <div>
+          <label class="small muted">איכות ופורמט:</label>
+          <select id="formatSelect" class="input"></select>
+        </div>
+        <div>
+          <label class="small muted">כתוביות (עברית / אנגלית):</label>
+          <select id="subsSelect" class="input">
+            <option value="none">ללא כתוביות</option>
+            <option value="embed">הטמע כתוביות בתוך הווידאו</option>
+            <option value="files">הורד כקובץ SRT נפרד</option>
+          </select>
+        </div>
+      </div>
+
+      <div class="grid-2">
+        <div>
+          <label class="small muted">חיתוך: זמן התחלה (אופציונלי)</label>
+          <input id="clipStart" class="input" dir="ltr" placeholder="00:01:15"/>
+        </div>
+        <div>
+          <label class="small muted">חיתוך: זמן סיום (אופציונלי)</label>
+          <input id="clipEnd" class="input" dir="ltr" placeholder="00:03:45"/>
+        </div>
+      </div>
+
+      <div style="display:flex;flex-wrap:wrap;gap:18px;align-items:center;margin-top:4px;">
+        <label style="display:flex;align-items:center;gap:8px;cursor:pointer;" class="small">
+          <input type="checkbox" id="collectionToggle" class="switch"/>
+          <span>הורדת פלייליסט / ערוץ שלם (ZIP)</span>
+        </label>
+        <label style="display:flex;align-items:center;gap:8px;cursor:pointer;" class="small">
+          <input type="checkbox" id="sponsorToggle" class="switch"/>
+          <span>SponsorBlock (הסרת חסויות אוטומטית)</span>
+        </label>
+      </div>
+
+      <button class="btn btn--primary btn--block" id="downloadBtn" type="button">🚀 התחל הורדה בענן GitHub</button>
+      <p id="hint" class="small muted" style="margin:0;text-align:center;"></p>
+    </section>
+
+    <section class="card">
+      <div style="display:flex;align-items:center;justify-content:space-between;flex-wrap:wrap;gap:8px;">
+        <div>
+          <h2 style="margin:0;font-size:15px;">🎯 מנוע המלצות קשיח (לפי היסטוריית ההורדות שלך)</h2>
+          <p class="small muted" style="margin:2px 0 0;">מוצא דרך GitHub רק סרטונים פופולריים מאוד עם התאמה קשיחה לנושא שבחרת (כולל תמונות שעוברות סינון)</p>
+        </div>
+      </div>
+
+      <div id="topicChips" style="display:flex;flex-wrap:wrap;gap:6px;"></div>
+
+      <div class="grid-2">
+        <div>
+          <label class="small muted">נושא קשיח לחיפוש (למשל: בניית בתים מעץ):</label>
+          <input id="recQueryInput" class="input" placeholder="הקלד נושא מדויק או לחץ על תגית מההיסטוריה למעלה..."/>
+        </div>
+        <div>
+          <label class="small muted">סינון פופולריות מינימלי (צפיות):</label>
+          <select id="recMinViewsSelect" class="input">
+            <option value="100000">מעל 100,000 צפיות</option>
+            <option value="500000" selected>מעל 500,000 צפיות (פופולרי מאוד)</option>
+            <option value="1000000">מעל 1,000,000 צפיות (מגה-ויראלי בלבד)</option>
+            <option value="3000000">מעל 3,000,000 צפיות</option>
+          </select>
+        </div>
+      </div>
+
+      <button class="btn btn--primary" id="findRecsBtn" type="button">🔍 חפש המלצות פופולריות בענן</button>
+      <div id="recStatusText" class="small muted"></div>
+      <div id="recList" style="display:flex;flex-direction:column;gap:10px;"></div>
+    </section>
+
+    <section class="card">
+      <div style="display:flex;align-items:center;justify-content:space-between;">
+        <h2 style="margin:0;font-size:15px;">תור הורדות פעיל והיסטוריה</h2>
+        <button class="btn small" id="clearJobsBtn" type="button">נקה שהושלמו</button>
+      </div>
+      <div id="jobList" style="display:flex;flex-direction:column;gap:10px;"></div>
+    </section>
+  </main>
+  <script src="shared/common.js"></script>
+  <script src="panel.js"></script>
+</body>
+</html>
