@@ -1,0 +1,198 @@
+name: download
+run-name: dl-${{ inputs.request_id }}
+
+on:
+  workflow_dispatch:
+    inputs:
+      request_id:
+        description: "Unique request ID"
+        required: true
+        type: string
+      url:
+        description: "Target URL"
+        required: true
+        type: string
+      quality:
+        description: "Quality preset (best, 2160, 1440, 1080, 720, 480, 360, audio, audio_flac, audio_wav, audio_m4a)"
+        required: false
+        default: "best"
+        type: string
+      mode:
+        description: "Download mode (video, collection, list)"
+        required: false
+        default: "video"
+        type: string
+      urls:
+        description: "JSON list of URLs for list mode"
+        required: false
+        default: ""
+        type: string
+      clip_start:
+        description: "Optional clip start time (e.g. 00:01:15)"
+        required: false
+        default: ""
+        type: string
+      clip_end:
+        description: "Optional clip end time (e.g. 00:03:45)"
+        required: false
+        default: ""
+        type: string
+      subtitles:
+        description: "Subtitle mode (none, embed, files)"
+        required: false
+        default: "none"
+        type: string
+      sponsorblock:
+        description: "Remove sponsor segments (true/false)"
+        required: false
+        default: "false"
+        type: string
+      cookies_enc:
+        description: "AES-256-GCM encrypted cookies"
+        required: false
+        default: ""
+        type: string
+
+permissions:
+  contents: write
+  actions: read
+
+jobs:
+  download:
+    runs-on: ubuntu-latest
+    timeout-minutes: 55
+    steps:
+      - name: Validate request id
+        run: |
+          if [[ ! "${{ inputs.request_id }}" =~ ^[a-zA-Z0-9_-]+$ ]]; then
+            echo "::error::Invalid request ID"
+            exit 1
+          fi
+
+      - name: Set up Deno
+        uses: denoland/setup-deno@v2
+        with:
+          deno-version: v2.x
+
+      - name: Install yt-dlp + ffmpeg + atomicparsley
+        run: |
+          if ! command -v ffmpeg >/dev/null 2>&1 || ! command -v zip >/dev/null 2>&1 || ! python3 -c "import cryptography" 2>/dev/null; then
+            sudo apt-get update -y
+            sudo apt-get install -y ffmpeg zip python3-cryptography atomicparsley
+          fi
+          sudo curl -sSL https://github.com/yt-dlp/yt-dlp/releases/latest/download/yt-dlp -o /usr/local/bin/yt-dlp
+          sudo chmod a+rx /usr/local/bin/yt-dlp
+          sudo /usr/local/bin/yt-dlp --update-to nightly || true
+
+      - name: Decrypt cookies
+        if: ${{ inputs.cookies_enc != '' }}
+        env:
+          COOKIES_ENC: ${{ inputs.cookies_enc }}
+          COOKIE_KEY: ${{ secrets.COOKIE_KEY }}
+        run: |
+          python3 - << 'EOF'
+          import os, base64
+          from cryptography.hazmat.primitives.ciphers.aead import AESGCM
+          enc_b64 = os.environ.get("COOKIES_ENC", "").strip()
+          hex_key = os.environ.get("COOKIE_KEY", "").strip()
+          if not enc_b64 or len(hex_key) != 64:
+              raise SystemExit("::error::COOKIE_KEY missing or invalid in repository secrets")
+          raw = base64.b64decode(enc_b64)
+          plain = AESGCM(bytes.fromhex(hex_key)).decrypt(raw[:12], raw[12:], None)
+          with open("/tmp/cookies.txt", "wb") as f:
+              f.write(plain)
+          EOF
+
+      - name: Download Media with Smart Fallback Engine
+        env:
+          TARGET_URL: ${{ inputs.url }}
+          QUALITY: ${{ inputs.quality }}
+          MODE: ${{ inputs.mode }}
+          URLS_JSON: ${{ inputs.urls }}
+          CLIP_START: ${{ inputs.clip_start }}
+          CLIP_END: ${{ inputs.clip_end }}
+          SUBTITLES: ${{ inputs.subtitles }}
+          SPONSORBLOCK: ${{ inputs.sponsorblock }}
+        run: |
+          mkdir -p /tmp/out /tmp/pkg
+
+          case "$QUALITY" in
+            audio)      FMT_ARGS="-x --audio-format mp3 --audio-quality 0 --embed-thumbnail --embed-metadata" ;;
+            audio_flac) FMT_ARGS="-x --audio-format flac --audio-quality 0 --embed-thumbnail --embed-metadata" ;;
+            audio_wav)  FMT_ARGS="-x --audio-format wav --audio-quality 0" ;;
+            audio_m4a)  FMT_ARGS="-x --audio-format m4a --audio-quality 0 --embed-thumbnail --embed-metadata" ;;
+            2160)       FMT_ARGS="-f bestvideo[height<=2160]+bestaudio/best[height<=2160] --merge-output-format mp4 --embed-metadata" ;;
+            1440)       FMT_ARGS="-f bestvideo[height<=1440]+bestaudio/best[height<=1440] --merge-output-format mp4 --embed-metadata" ;;
+            1080)       FMT_ARGS="-f bestvideo[height<=1080][ext=mp4]+bestaudio[ext=m4a]/best[height<=1080][ext=mp4]/best[height<=1080] --merge-output-format mp4 --embed-metadata" ;;
+            720)        FMT_ARGS="-f bestvideo[height<=720][ext=mp4]+bestaudio[ext=m4a]/best[height<=720][ext=mp4]/best[height<=720] --merge-output-format mp4 --embed-metadata" ;;
+            480)        FMT_ARGS="-f bestvideo[height<=480][ext=mp4]+bestaudio[ext=m4a]/best[height<=480][ext=mp4]/best[height<=480] --merge-output-format mp4 --embed-metadata" ;;
+            360)        FMT_ARGS="-f bestvideo[height<=360][ext=mp4]+bestaudio[ext=m4a]/best[height<=360][ext=mp4]/best[height<=360] --merge-output-format mp4 --embed-metadata" ;;
+            *)          FMT_ARGS="-f bestvideo[ext=mp4]+bestaudio[ext=m4a]/best[ext=mp4]/best --merge-output-format mp4 --embed-metadata" ;;
+          esac
+
+          EXTRA_FEATURES=""
+          if [ -n "$CLIP_START" ] || [ -n "$CLIP_END" ]; then
+            S_TIME="${CLIP_START:-00:00:00}"
+            E_TIME="${CLIP_END:-inf}"
+            EXTRA_FEATURES="$EXTRA_FEATURES --download-sections *${S_TIME}-${E_TIME} --force-keyframes-at-cuts"
+          fi
+
+          if [ "$SPONSORBLOCK" = "true" ]; then
+            EXTRA_FEATURES="$EXTRA_FEATURES --sponsorblock-remove sponsor,intro,outro,selfpromo,interaction"
+          fi
+
+          if [ "$SUBTITLES" = "embed" ]; then
+            EXTRA_FEATURES="$EXTRA_FEATURES --write-subs --write-auto-subs --sub-langs he,iw,en.* --embed-subs"
+          elif [ "$SUBTITLES" = "files" ]; then
+            EXTRA_FEATURES="$EXTRA_FEATURES --write-subs --write-auto-subs --sub-langs he,iw,en.* --convert-subs srt"
+          fi
+
+          run_ytdlp() {
+            local client_args="$1"
+            if [ "$MODE" = "list" ] && [ -n "$URLS_JSON" ]; then
+              python3 -c 'import os, json; open("/tmp/urls.txt", "w").write("\n".join(json.loads(os.environ["URLS_JSON"])))'
+              yt-dlp $client_args $FMT_ARGS $EXTRA_FEATURES --ffmpeg-location /usr/bin/ffmpeg --concurrent-fragments 8 --ignore-errors --no-playlist -a /tmp/urls.txt -o "/tmp/out/%(title).150B [%(id)s].%(ext)s"
+            elif [ "$MODE" = "collection" ]; then
+              yt-dlp $client_args $FMT_ARGS $EXTRA_FEATURES --ffmpeg-location /usr/bin/ffmpeg --concurrent-fragments 8 --ignore-errors --yes-playlist --playlist-end 200 -o "/tmp/out/%(playlist_title,channel)s/%(title).150B [%(id)s].%(ext)s" "$TARGET_URL"
+            else
+              yt-dlp $client_args $FMT_ARGS $EXTRA_FEATURES --ffmpeg-location /usr/bin/ffmpeg --concurrent-fragments 8 --no-playlist -o "/tmp/out/%(title).150B [%(id)s].%(ext)s" "$TARGET_URL"
+            fi
+          }
+
+          echo "Attempt 1: Trying android_vr,tv_embedded,ios without cookies..."
+          run_ytdlp "--extractor-args youtube:player_client=android_vr,tv_embedded,ios" || true
+
+          if [ -z "$(ls -A /tmp/out)" ]; then
+            echo "Attempt 2: Trying mweb,web_embedded without cookies..."
+            run_ytdlp "--extractor-args youtube:player_client=mweb,tv_embedded" || true
+          fi
+
+          if [ -z "$(ls -A /tmp/out)" ] && [ -f /tmp/cookies.txt ]; then
+            echo "Attempt 3: Trying with encrypted cookies (web_creator,tv_embedded,mweb)..."
+            run_ytdlp "--cookies /tmp/cookies.txt --extractor-args youtube:player_client=web_creator,tv_embedded,mweb" || true
+          fi
+
+          if [ -z "$(ls -A /tmp/out)" ] && [ -f /tmp/cookies.txt ]; then
+            echo "Attempt 4: Trying default client with cookies..."
+            run_ytdlp "--cookies /tmp/cookies.txt" || true
+          fi
+
+          if [ -z "$(ls -A /tmp/out)" ]; then
+            echo "::error::לא ירדו קבצים מהקישור"
+            exit 1
+          fi
+
+          cd /tmp/out
+          zip -r -0 "/tmp/pkg/dl-${{ inputs.request_id }}.zip" .
+
+      - name: Always scrub temporary secrets
+        if: always()
+        run: rm -f /tmp/cookies.txt /tmp/urls.txt
+
+      - name: Publish Release Asset
+        env:
+          GH_TOKEN: ${{ github.token }}
+          GH_REPO: ${{ github.repository }}
+        run: |
+          TAG="dl-${{ inputs.request_id }}"
+          gh release create "$TAG" /tmp/pkg/*             --repo "${{ github.repository }}"             --target "${{ github.sha }}"             --title "$TAG"             --notes "YouTube Proxy Ultra Automated Package"             --prerelease
